@@ -1,4 +1,4 @@
 fastapi[all]~=0.75.0
 pytest==7.1.0
 tinydb~=4.7.0
-pydantic==1.7.3
+pydantic

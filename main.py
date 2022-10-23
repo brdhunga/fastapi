@@ -2,6 +2,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from typing import Optional, List
+import threading
 
 from fastapi import FastAPI
 from pydantic import parse_obj_as
@@ -12,55 +13,90 @@ from logging_service import log_data
 from pydantic_schemas import TagIncrementPydantic, TagStatisticsDict, LogPydantic
 from db import db_service
 
+from subprocess import Popen, PIPE
+
+import os, time
+
+from playwright.sync_api import Page, sync_playwright, Playwright
+
 
 app = FastAPI()
 
 logging.basicConfig(level=logging.INFO)
 logging.debug(f'Starting........')
 
+
+EMAIL = "brdhunga+wew@gmail.com"
+PASSWORD = os.environ['PASSWORD']
+PRODUCTION = not os.environ.get('DEBUG', "") in ['True', 'TRUE']
+
+
+def check_button_clicked(page: Page) -> None:
+    """"""
+    btn = page.get_by_test_id('primary-button')
+    if "Book for 1 credit" in btn.inner_html():
+        logging.info("Already booked")
+    elif "Book for 0 credit" in btn.inner_html():
+        logging.info("Booking now....")
+        btn.click()
+    else:
+        raise Exception(f"the button did not work: {str(btn.inner_html())}")
+
+
+def run(playwright: Playwright):
+    """"""
+    browser = playwright.chromium.launch(headless=PRODUCTION)
+    context = browser.new_context()
+
+    page = context.new_page()
+    page.goto('https://members.wework.com/desks')
+    page.get_by_text('Log in').wait_for()
+
+    email_field = page.locator('id=1-email')
+    email_field.fill(EMAIL)
+    assert page.locator('id=1-email').input_value() == EMAIL  # .input_value() to get content
+
+    password_field = page.locator('id=1-password')
+    password_field.fill(PASSWORD)
+
+    login_button = page.locator('id=1-submit')
+    login_button.click()
+
+    page.get_by_test_id("cta-book-now").click()
+
+    for i in range(5):
+        time.sleep(3)
+        check_button_clicked(page)
+
+
 @app.get("/")
 def root():
     return {"message": "Hello World"}
 
 
-@app.get("/items/{item_id}")
-def read_item(item_id: int, q: Optional[str] = None):
-    return {"item_id": item_id, "q": q}
+def long_function():
+    """"""
+    logging.info("Starting playwright now...")
+    with sync_playwright() as play:
+        play: Playwright
+        run(play)
 
 
-@app.post("/tags/increment", response_model=bool, tags=["redactor"])
-def increment_tags(tags_for_increment: TagIncrementPydantic):
-    """
-    End point to update the value of a tag
-    :param tags_for_increment: Provide tag in the format {"name" : <tag_name_string>, "value" : <tag_value_int>}
-    :return: bool if the post is success else raises standard error
-    """
-    db_conn = db_service.get_connection()
-    table = TinyDB(db_conn).table(db_service.TABLE_NAME)
-    log_object = LogPydantic(logName="fastApiInterview/12345/logs/1",
-                             resource={"type": "personalLaptop"},
-                             timestamp=datetime.now(),
-                             severity=LogSeverityEnum.INFO.value,
-                             textPayload=tags_for_increment.json(by_alias=True))
-    log_data(log_object)
-    table.insert(tags_for_increment.dict())
-    return True
+@app.get("/bg")
+def bg():
+    t = threading.Thread(target=long_function,
+                            args=[],
+                            kwargs={})
+    t.setDaemon(True)
+    t.start()
+    return {"message": "Success"}
 
 
-@app.get("/tags/statistics", response_model=TagStatisticsDict, tags=["redactor"])
-def increment_tags():
-    """
-    Get aggregated counts of all the tags
-    :return: get counts of name of each tag and corresponding count e.g {"chair": 400}
-    """
-    db_name = db_service.get_connection()
-    table = TinyDB(db_name).table(db_service.TABLE_NAME)
-    documents = table.all()
-    list_of_tag_increments = parse_obj_as(List[TagIncrementPydantic], documents)
+@app.get('/sp')
+def sub_process():
+    process = Popen(['playwright', 'install'], stdout=PIPE, stderr=PIPE)
+    stdout, stderr = process.communicate()
+    return {"out": str(stdout), "error": str(stderr)}
 
-    tag_counts = defaultdict(lambda : 0)
-    for tag_count in list_of_tag_increments:
-        tag_counts[tag_count.name] += tag_count.value
-
-    return tag_counts
+    
 

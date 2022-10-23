@@ -1,7 +1,7 @@
 import os
 
 
-DATABASE_NAME = os.environ["DB_CONN"]
+DATABASE_NAME = os.environ.get("DB_CONN", "yoyo")
 
 
 class DbService:
